@@ -1,0 +1,36 @@
+# --- Python 3 ---
+__pycache__/
+*.py[cod]
+*$py.class
+.env
+.venv
+env/
+venv/
+build/
+dist/
+*.egg-info/
+
+# --- Terraform ---
+# Local .terraform folder (where providers are downloaded)
+.terraform/
+
+# State files (WARNING: These can contain secrets!)
+*.tfstate
+*.tfstate.backup
+*.tfstate.lock.info
+*.terraform.lock.hcl
+
+# Terraform variables (often contain sensitive data)
+*.tfvars
+*.tfvars.json
+
+# Override files
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# --- OS / IDE General ---
+.DS_Store
+.vscode/
+.idea/
