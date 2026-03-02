@@ -14,7 +14,14 @@ resource "google_project_service" "required_services" {
     "firestore.googleapis.com",
     "compute.googleapis.com",
     "artifactregistry.googleapis.com",
-    "cloudbuild.googleapis.com" # Added to support remote builds
+    "iam.googleapis.com",
+    "logging.googleapis.com",
+    "monitoring.googleapis.com",
+    "storage-api.googleapis.com",
+    "storage-component.googleapis.com",
+    "cloudresourcemanager.googleapis.com",
+    "cloudbuild.googleapis.com",
+    "pubsub.googleapis.com" # Added for Artifact Registry event triggering
   ])
 
   project                    = var.project_id
@@ -33,33 +40,93 @@ resource "google_artifact_registry_repository" "latency_repo" {
   depends_on = [google_project_service.required_services]
 }
 
-# 2. Build and Push Docker Image using Cloud Build
-# This triggers whenever the Dockerfile in the same directory changes.
-resource "null_resource" "docker_build_push" {
-  triggers = {
-    # Re-run build if the Dockerfile changes
-    dockerfile_hash = filemd5("${path.module}/Dockerfile")
-  }
-
-  provisioner "local-exec" {
-    command = <<EOT
-      gcloud builds submit --tag us-central1-docker.pkg.dev/${var.project_id}/${google_artifact_registry_repository.latency_repo.repository_id}/latency-app:latest .
-    EOT
-  }
-
-  depends_on = [google_artifact_registry_repository.latency_repo]
+# 2. Pub/Sub Topic for Artifact Registry Events
+resource "google_pubsub_topic" "gcr_topic" {
+  name = "gcr" # Artifact Registry automatically publishes here if it exists
+  
+  depends_on = [google_project_service.required_services]
 }
 
-# 3. Initialize Firestore Database
+# 3. Cloud Build Service Account & Permissions
+resource "google_service_account" "cloud_build_sa" {
+  account_id   = "cloud-build-sa"
+  display_name = "Custom Cloud Build Service Account"
+}
+
+resource "google_project_iam_member" "cloud_build_roles" {
+  for_each = toset([
+    "roles/logging.logWriter",
+    "roles/storage.admin",
+    "roles/artifactregistry.writer",
+    "roles/iam.serviceAccountUser",
+    "roles/run.admin"
+  ])
+  project = var.project_id
+  role    = each.key
+  member  = "serviceAccount:${google_service_account.cloud_build_sa.email}"
+
+  depends_on = [google_service_account.cloud_build_sa]
+}
+
+# 4. Cloud Build Trigger (Deploy on Image Push)
+resource "google_cloudbuild_trigger" "automated_deploy_on_image" {
+  name        = "latency-app-deploy-on-image"
+  description = "Deploys the latency app whenever a new image is pushed to AR"
+  location    = "us-central1"
+  
+  service_account = google_service_account.cloud_build_sa.id
+
+  pubsub_config {
+    topic = google_pubsub_topic.gcr_topic.id
+  }
+
+  substitutions = {
+    _TARGET_REGIONS = join(" ", local.target_regions)
+    _IMAGE_NAME     = "$(body.message.data.tag)" 
+  }
+
+  build {
+    # Set timeout to 30 minutes (1800 seconds)
+    timeout = "1800s"
+    
+    step {
+      name       = "gcr.io/google.com/cloudsdktool/cloud-sdk"
+      entrypoint = "bash"
+      args = [
+        "-c",
+        <<-EOT
+        for region in $_TARGET_REGIONS; do
+          echo "Deploying to $region..."
+          gcloud run services update latency-tester-$region \
+            --image us-central1-docker.pkg.dev/${var.project_id}/${google_artifact_registry_repository.latency_repo.repository_id}/latency-app:latest \
+            --region $region
+        done
+        EOT
+      ]
+    }
+
+    options {
+      logging = "CLOUD_LOGGING_ONLY"
+    }
+  }
+
+  depends_on = [
+    google_artifact_registry_repository.latency_repo,
+    google_project_iam_member.cloud_build_roles,
+    google_pubsub_topic.gcr_topic
+  ]
+}
+
+# 5. Initialize Firestore Database
 resource "google_firestore_database" "database" {
-  name        = "latencys"
-  location_id = "nam5" # Multi-region (US). Use 'eur3' for Europe.
+  name        = "latency"
+  location_id = "nam5"
   type        = "FIRESTORE_NATIVE"
   
   depends_on = [google_project_service.required_services]
 }
 
-# 4. Initialize the Configuration Collection
+# 6. Initialize the Configuration Collection
 resource "google_firestore_document" "targets_config" {
   project     = var.project_id
   database    = google_firestore_database.database.name
@@ -71,7 +138,7 @@ resource "google_firestore_document" "targets_config" {
   })
 }
 
-# 5. Initialize the Latency Logs Collection placeholder
+# 7. Initialize the Latency Logs Collection placeholder
 resource "google_firestore_document" "logs_init" {
   project     = var.project_id
   database    = google_firestore_database.database.name
@@ -79,22 +146,20 @@ resource "google_firestore_document" "logs_init" {
   document_id = "init_marker"
   fields      = jsonencode({
     info      = { stringValue = "Collection initialized by Terraform" }
-    timestamp = { serverTimestampValue = "REQUEST_TIME" }
+    timestamp = { timestampValue = timestamp() } 
   })
 }
 
-# 6. Fetch all available regions
+# 8. Fetch all available regions
 data "google_compute_regions" "available" {}
 
-# New Local variable to filter out the restricted region
 locals {
-  # Subtract the unwanted region from the list of all available regions
   target_regions = setsubtract(data.google_compute_regions.available.names, ["me-central2"])
 }
 
-# 7. Service Account and Permissions
+# 9. Service Account and Permissions for the App
 resource "google_service_account" "latency_tester" {
-  account_id   = "latency-tester-sa"
+  account_id   = "latency-sa"
   display_name = "Latency Tester Service Account"
 }
 
@@ -104,7 +169,7 @@ resource "google_project_iam_member" "firestore_access" {
   member  = "serviceAccount:${google_service_account.latency_tester.email}"
 }
 
-# 8. Global Cloud Run Deployment
+# 10. Global Cloud Run Deployment
 resource "google_cloud_run_v2_service" "latency_service" {
   for_each = toset(local.target_regions)
 
@@ -115,15 +180,13 @@ resource "google_cloud_run_v2_service" "latency_service" {
   template {
     service_account = google_service_account.latency_tester.email
     containers {
-      # Points to the newly created Artifact Registry image
-      image = "us-central1-docker.pkg.dev/${var.project_id}/${google_artifact_registry_repository.latency_repo.repository_id}/latency-app:latest"
+      image = "us-docker.pkg.dev/cloudrun/container/hello"
+      
       ports { container_port = 8080 }
       env {
         name  = "PROJECT_ID"
         value = var.project_id
-
       }
-      # New environment variable for the specific deployment region
       env {
         name  = "REGION"
         value = each.value
@@ -131,11 +194,14 @@ resource "google_cloud_run_v2_service" "latency_service" {
     }
   }
 
-  # Ensure the image is built and pushed before Cloud Run tries to pull it
-  depends_on = [null_resource.docker_build_push]
+  lifecycle {
+    ignore_changes = [
+      template[0].containers[0].image
+    ]
+  }
 }
 
-# 9. IAM: Allow public pings (Required for cross-region testing)
+# 11. IAM: Allow public pings
 resource "google_cloud_run_v2_service_iam_member" "public_access" {
   for_each = google_cloud_run_v2_service.latency_service
   name     = each.value.name
@@ -144,30 +210,28 @@ resource "google_cloud_run_v2_service_iam_member" "public_access" {
   member   = "allUsers"
 }
 
-# 10. Create Firestore Composite Index
-# Required for: query(latency_logs).order_by("timestamp", DESC)
+# 12. Create Firestore Composite Index
 resource "google_firestore_index" "latency_logs_timestamp" {
-  project  = var.project_id
-  database = google_firestore_database.database.name
-
+  project    = var.project_id
+  database   = google_firestore_database.database.name
   collection = "latency_logs"
+
+  fields {
+    field_path = "REGION"
+    order      = "ASCENDING"
+  }
 
   fields {
     field_path = "timestamp"
     order      = "DESCENDING"
   }
-
-  # Note: If you ever add filters like 'where from_region == X', 
-  # you would add those fields here as well.
-  
-  depends_on = [google_firestore_database.database]
 }
 
-# 11. Outputs
+# 13. Outputs
 output "firestore_console_url" {
   value = "https://console.cloud.google.com/firestore/data?project=${var.project_id}"
 }
 
 output "regions_deployed_count" {
-  value = length(data.google_compute_regions.available.names)
+  value = length(local.target_regions)
 }

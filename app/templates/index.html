@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Global Latency Heatmap</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    
+    <div class="main-wrapper">
+        <div class="gcp-callout">
+            <div class="gcp-callout-icon">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M11 17h2v-6h-2v6zm1-15C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zM11 9h2V7h-2v2z"/>
+                </svg>
+            </div>
+            <div class="gcp-callout-content">
+                <h3 class="gcp-callout-title">Run a local latency test</h3>
+                <p class="gcp-callout-body">Measure the network latency from your current machine to this specific service instance. Copy and run the appropriate command in your terminal.</p>
+                
+                <div class="cli-controls">
+                    <div class="cli-tabs">
+                        <button class="cli-tab active" onclick="setCli('bash', this)">Mac / Linux (curl)</button>
+                        <button class="cli-tab" onclick="setCli('ps', this)">Windows (PowerShell)</button>
+                    </div>
+                    
+                    <div class="cli-code-block">
+                        <code id="cli-command">curl -w "Total Latency: %{time_total}s\n" -o /dev/null -s {{ current_url }}/ping</code>
+                        <button class="copy-btn" id="copyBtn" onclick="copyCli()">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                            </svg>
+                            <span>Copy</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="container">
+            <h2 style="margin-top:0; color: #1a73e8;">Global Network Map</h2>
+            <p style="color: #64748b; margin-top: 5px; margin-bottom: 20px;">Click a datacenter marker to view its current latency to other regions.</p>
+            <div id="gcp-map" style="height: 450px; width: 100%; border-radius: 8px; border: 1px solid #e2e8f0; z-index: 1;"></div>
+        </div>
+
+        <div class="container heatmap-container">
+            <div class="heatmap-header">
+                <h1 style="margin:0;">Global Latency Grid</h1>
+                <p style="color: #64748b; margin-top: 5px;">Live server-to-server latency matrix. Click a cell to view historical trends.</p>
+            </div>
+            
+            <div class="table-wrapper">
+                <table> 
+                    {{ header_html | safe }} 
+                    {{ rows_html | safe }} 
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <div id="modal">
+        <div class="modal-content">
+            <span class="close" onclick="closeModal()">&times;</span>
+            <h3 id="modal-title" style="margin-top:0; color: #0f172a;"></h3>
+            <div class="chart-container"><canvas id="latencyChart"></canvas></div>
+            <div class="history-table-overflow">
+                <table class="history-table">
+                    <thead>
+                        <tr>
+                            <th>Timestamp</th>
+                            <th>Latency (ms)</th>
+                        </tr>
+                    </thead>
+                    <tbody id="history-body"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // --- Map Initialization & Logic ---
+        const matrixData = {{ matrix_json | safe }};
+        
+        // Approximate coordinates for GCP regions
+       const regionCoords = {
+            // Americas
+            "northamerica-northeast1": [45.50, -73.56], // Montréal
+            "northamerica-northeast2": [43.65, -79.38], // Toronto
+            "northamerica-south1": [20.58, -100.39],    // Querétaro
+            "southamerica-east1": [-23.55, -46.63],     // São Paulo
+            "southamerica-west1": [-33.44, -70.66],     // Santiago
+            "us-central1": [41.26, -95.86],             // Iowa
+            "us-east1": [33.19, -80.01],                // South Carolina
+            "us-east4": [39.04, -77.48],                // Northern Virginia
+            "us-east5": [39.96, -82.99],                // Columbus
+            "us-south1": [32.77, -96.79],               // Dallas
+            "us-west1": [45.59, -121.18],               // Oregon
+            "us-west2": [34.05, -118.24],               // Los Angeles
+            "us-west3": [40.76, -111.89],               // Salt Lake City
+            "us-west4": [36.16, -115.13],               // Las Vegas
+            
+            // Europe
+            "europe-central2": [52.22, 21.01],          // Warsaw
+            "europe-north1": [60.56, 27.19],            // Finland
+            "europe-north2": [59.32, 18.06],            // Stockholm
+            "europe-southwest1": [40.41, -3.70],        // Madrid
+            "europe-west1": [50.45, 3.82],              // Belgium
+            "europe-west2": [51.50, -0.12],             // London
+            "europe-west3": [50.11, 8.68],              // Frankfurt
+            "europe-west4": [53.42, 6.80],              // Netherlands
+            "europe-west6": [47.37, 8.54],              // Zurich
+            "europe-west8": [45.46, 9.19],              // Milan
+            "europe-west9": [48.85, 2.35],              // Paris
+            "europe-west10": [52.52, 13.40],            // Berlin
+            "europe-west12": [45.07, 7.68],             // Turin
+            
+            // Asia-Pacific
+            "asia-east1": [24.05, 120.43],              // Taiwan
+            "asia-east2": [22.31, 114.16],              // Hong Kong
+            "asia-northeast1": [35.68, 139.69],         // Tokyo
+            "asia-northeast2": [34.69, 135.50],         // Osaka
+            "asia-northeast3": [37.56, 126.97],         // Seoul
+            "asia-south1": [19.07, 72.87],              // Mumbai
+            "asia-south2": [28.61, 77.20],              // Delhi
+            "asia-southeast1": [1.35, 103.81],          // Singapore
+            "asia-southeast2": [-6.20, 106.81],         // Jakarta
+            "asia-southeast3": [13.75, 100.50],         // Bangkok
+            "australia-southeast1": [-33.86, 151.20],   // Sydney
+            "australia-southeast2": [-37.81, 144.96],   // Melbourne
+            
+            // Middle East & Africa
+            "africa-south1": [-26.20, 28.04],           // Johannesburg
+            "me-central1": [25.28, 51.53]               // Doha
+        };
+
+        const map = L.map('gcp-map').setView([30, -20], 2);
+        
+        L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+            attribution: '&copy; OpenStreetMap contributors &copy; CARTO',
+            subdomains: 'abcd',
+            maxZoom: 20
+        }).addTo(map);
+
+        for (const [srcRegion, targets] of Object.entries(matrixData)) {
+            if (regionCoords[srcRegion]) {
+                const marker = L.marker(regionCoords[srcRegion]).addTo(map);
+                
+                let popupHtml = `
+                    <div class="map-popup">
+                        <h4 style="margin: 0 0 10px 0; color: #1a73e8; border-bottom: 1px solid #e2e8f0; padding-bottom: 5px;">${srcRegion}</h4>
+                        <div class="map-popup-list">
+                            <table style="width: 100%; border-collapse: collapse;">
+                `;
+                
+                const sortedDestinations = Object.keys(targets).sort();
+                
+                for (const dstRegion of sortedDestinations) {
+                    const history = targets[dstRegion];
+                    if (srcRegion !== dstRegion && history.length > 0) {
+                        const latestMs = history[0].ms;
+                        let colorClass = latestMs < 50 ? '#166534' : (latestMs < 150 ? '#854d0e' : (latestMs < 300 ? '#9a3412' : '#991b1b'));
+                        
+                        popupHtml += `
+                            <tr>
+                                <td style="padding: 4px 0; font-size: 0.85rem; border-bottom: 1px solid #f1f5f9;">${dstRegion}</td>
+                                <td style="padding: 4px 0; text-align: right; border-bottom: 1px solid #f1f5f9; color: ${colorClass}; font-weight: bold;">${latestMs} ms</td>
+                            </tr>
+                        `;
+                    }
+                }
+                popupHtml += `</table></div></div>`;
+                marker.bindPopup(popupHtml);
+            }
+        }
+
+        // --- CLI Copy Logic ---
+        const targetUrl = "{{ current_url }}/ping";
+        const cliCommands = {
+            bash: `curl -w "Total Latency: %{time_total}s\\n" -o /dev/null -s ${targetUrl}`,
+            ps: `(Measure-Command { Invoke-WebRequest -Uri "${targetUrl}" -UseBasicParsing }).TotalMilliseconds.ToString() + ' ms'`
+        };
+
+        function setCli(os, btnElement) {
+            document.querySelectorAll('.cli-tab').forEach(b => b.classList.remove('active'));
+            btnElement.classList.add('active');
+            document.getElementById('cli-command').innerText = cliCommands[os];
+        }
+
+        function copyCli() {
+            const text = document.getElementById('cli-command').innerText;
+            navigator.clipboard.writeText(text).then(() => {
+                const btn = document.getElementById('copyBtn');
+                const btnText = btn.querySelector('span');
+                
+                btnText.innerText = "Copied!";
+                btn.classList.add('copied');
+                
+                setTimeout(() => {
+                    btnText.innerText = "Copy";
+                    btn.classList.remove('copied');
+                }, 2000);
+            }).catch(err => {
+                console.error('Failed to copy: ', err);
+                alert('Failed to copy text to clipboard.');
+            });
+        }
+
+        // --- Heatmap & Chart Logic ---
+        let myChart = null;
+
+        function showHistory(src, dst, data) {
+            document.getElementById('modal-title').innerText = `${src} ➝ ${dst} Latency Trend`;
+            
+            const body = document.getElementById('history-body');
+            const displayData = [...data].reverse();
+            body.innerHTML = displayData.map(entry => `<tr><td>${entry.time}</td><td><strong>${entry.ms.toFixed(2)} ms</strong></td></tr>`).join('');
+            
+            const ctx = document.getElementById('latencyChart').getContext('2d');
+            if (myChart) myChart.destroy();
+            
+            myChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: data.map(d => d.time),
+                    datasets: [{
+                        label: 'Latency (ms)',
+                        data: data.map(d => d.ms),
+                        borderColor: '#1a73e8',
+                        backgroundColor: 'rgba(26, 115, 232, 0.1)',
+                        fill: true,
+                        tension: 0.3,
+                        pointRadius: 3,
+                        pointHoverRadius: 5,
+                        borderWidth: 2
+                    }]
+                },
+                options: { 
+                    responsive: true, 
+                    maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: { 
+                        y: { beginAtZero: false, title: { display: true, text: 'Milliseconds' }, grid: { color: '#f1f5f9' } },
+                        x: { grid: { display: false } }
+                    }
+                }
+            });
+
+            document.getElementById('modal').style.display = "flex";
+        }
+
+        function closeModal() { document.getElementById('modal').style.display = "none"; }
+        window.onclick = e => { if(e.target == document.getElementById('modal')) closeModal(); }
+        setTimeout(() => location.reload(), 60000);
+    </script>
+</body>
+</html>

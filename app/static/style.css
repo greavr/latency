@@ -1,0 +1,347 @@
+/* --- Base Reset & Typography --- */
+* {
+    box-sizing: border-box;
+}
+
+body { 
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
+    background: #f8fafc; 
+    padding: 20px; 
+    color: #1e293b; 
+    margin: 0;
+}
+
+.main-wrapper {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 20px;
+}
+
+/* --- Standard Container --- */
+.container { 
+    background: white; 
+    padding: 25px; 
+    border-radius: 12px; 
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+    width: 100%; 
+    margin-bottom: 30px;
+}
+
+/* --- GCP-style Stylized Call-out Box --- */
+.gcp-callout {
+    background-color: #e8f0fe; 
+    border-left: 5px solid #1a73e8; 
+    border-radius: 8px;
+    padding: 24px;
+    margin-bottom: 30px;
+    display: flex;
+    gap: 16px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+}
+
+.gcp-callout-icon {
+    color: #1a73e8; 
+    flex-shrink: 0;
+    margin-top: 2px; 
+}
+
+.gcp-callout-content {
+    flex-grow: 1;
+}
+
+.gcp-callout-title {
+    font-size: 1.25rem;
+    font-weight: 600;
+    color: #1a73e8; 
+    margin: 0 0 10px 0;
+}
+
+.gcp-callout-body {
+    color: #3c4043; 
+    font-size: 1rem;
+    line-height: 1.5;
+    margin: 0 0 20px 0;
+}
+
+/* --- CLI Controls --- */
+.cli-controls {
+    margin-top: 15px;
+}
+
+.cli-tabs {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 10px;
+}
+
+.cli-tab {
+    background: transparent;
+    border: 1px solid #1a73e8; 
+    padding: 8px 18px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 0.9rem;
+    font-weight: 500;
+    color: #1a73e8;
+    transition: all 0.2s;
+}
+
+.cli-tab:hover {
+    background: rgba(26, 115, 232, 0.08);
+}
+
+.cli-tab.active {
+    background: #1a73e8; 
+    color: white;
+    border-color: #1a73e8;
+}
+
+.cli-code-block {
+    background: #202124; 
+    color: #e8eaed;
+    padding: 16px;
+    border-radius: 8px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-family: 'Roboto Mono', Consolas, Monaco, 'Courier New', monospace;
+    font-size: 0.95rem;
+    box-shadow: inset 0 2px 4px rgba(0,0,0,0.3);
+}
+
+.cli-code-block code {
+    word-break: break-all;
+    margin-right: 20px;
+    line-height: 1.4;
+}
+
+/* --- Copy Button --- */
+.copy-btn {
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    padding: 8px 16px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 0.85rem;
+    font-weight: 500;
+    color: #e8eaed;
+    transition: all 0.2s;
+    min-width: 90px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+}
+
+.copy-btn:hover {
+    background: rgba(255, 255, 255, 0.2);
+    border-color: rgba(255, 255, 255, 0.3);
+}
+
+.copy-btn.copied {
+    background: #166534; 
+    border-color: #166534;
+    color: white;
+}
+
+/* --- Leaflet Map --- */
+.map-popup {
+    min-width: 200px;
+}
+
+.map-popup h4 {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+}
+
+.map-popup-list {
+    max-height: 200px;
+    overflow-y: auto;
+    padding-right: 5px; 
+}
+
+.leaflet-popup-content-wrapper {
+    border-radius: 8px;
+    box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1);
+}
+
+.leaflet-popup-content {
+    margin: 15px;
+}
+
+/* --- Scrollable Heatmap Table --- */
+.heatmap-container {
+    overflow: hidden; 
+}
+
+.heatmap-header {
+    margin-bottom: 20px;
+    border-bottom: 1px solid #e2e8f0;
+    padding-bottom: 15px;
+}
+
+.table-wrapper {
+    max-height: 70vh; 
+    overflow: auto; 
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+}
+
+table { 
+    border-collapse: separate; 
+    border-spacing: 0; 
+    width: 100%; 
+}
+
+th, td { 
+    padding: 16px; 
+    text-align: center; 
+    border-bottom: 1px solid #e2e8f0; 
+    border-right: 1px solid #e2e8f0; 
+    white-space: nowrap; 
+    font-size: 0.95rem;
+}
+
+th:last-child, td:last-child { border-right: none; }
+tr:last-child td { border-bottom: none; }
+
+/* Sticky Positioning Logic */
+th { 
+    position: sticky; 
+    top: 0; 
+    background: #0f172a; 
+    color: white; 
+    font-size: 0.8rem; 
+    text-transform: uppercase; 
+    letter-spacing: 0.05em;
+    z-index: 2; 
+}
+
+.region-label { 
+    position: sticky; 
+    left: 0; 
+    font-weight: 600; 
+    background: #f1f5f9; 
+    color: #0f172a;
+    z-index: 1; 
+    border-right: 2px solid #cbd5e1; 
+    text-align: left;
+    padding-left: 20px;
+}
+
+th:first-child { 
+    position: sticky; 
+    left: 0; 
+    top: 0;
+    z-index: 3; 
+    background: #0f172a; 
+    border-right: 2px solid #334155;
+}
+
+/* Cell Colors & States */
+.lat-excellent { background: #dcfce7; color: #166534; } 
+.lat-good { background: #fef9c3; color: #854d0e; }      
+.lat-fair { background: #ffedd5; color: #9a3412; }      
+.lat-poor { background: #fee2e2; color: #991b1b; }      
+
+.cell-active { 
+    cursor: pointer; 
+    font-weight: 600; 
+    transition: all 0.1s ease-in-out; 
+}
+
+.cell-active:hover { 
+    transform: scale(1.1); 
+    filter: brightness(0.95); 
+    z-index: 5; 
+    position: relative;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+}
+
+.cell-self { background: #f8fafc; color: #94a3b8; font-size: 0.8rem; }
+.cell-empty { color: #94a3b8; font-size: 0.9rem; font-style: italic;}
+
+/* --- Modal Styles --- */
+#modal { 
+    display: none; 
+    position: fixed; 
+    z-index: 1000; 
+    left: 0; 
+    top: 0; 
+    width: 100%; 
+    height: 100%; 
+    background: rgba(15, 23, 42, 0.7); 
+    backdrop-filter: blur(4px); 
+    justify-content: center; 
+    align-items: center; 
+}
+
+.modal-content { 
+    background: white; 
+    padding: 30px; 
+    width: 90%; 
+    max-width: 700px; 
+    border-radius: 12px; 
+    box-shadow: 0 25px 50px -12px rgba(0,0,0,0.5); 
+    position: relative;
+    animation: modalSlideIn 0.3s ease-out;
+}
+
+@keyframes modalSlideIn {
+    from { transform: translateY(-30px); opacity: 0; }
+    to { transform: translateY(0); opacity: 1; }
+}
+
+.close { 
+    position: absolute;
+    top: 20px;
+    right: 20px;
+    font-size: 28px; 
+    font-weight: bold;
+    cursor: pointer; 
+    color: #64748b; 
+    line-height: 1;
+}
+
+.close:hover { color: #0f172a; }
+
+.chart-container { 
+    height: 300px; 
+    margin-bottom: 25px; 
+}
+
+/* Modal History Table Styles */
+.history-table-overflow {
+    max-height: 250px; 
+    overflow-y: auto;
+    border: 1px solid #f1f5f9;
+    border-radius: 6px;
+}
+
+.history-table { 
+    width: 100%; 
+    border-spacing: 0; 
+    text-align: left; 
+}
+
+.history-table th {
+    background: #f8fafc;
+    color: #475569;
+    font-weight: 600;
+    text-transform: none;
+    letter-spacing: normal;
+    font-size: 0.9rem;
+    position: sticky;
+    top: 0;
+    z-index: 1;
+}
+
+.history-table th, .history-table td { 
+    border: none; 
+    border-bottom: 1px solid #f1f5f9; 
+    padding: 12px 15px; 
+    text-align: left; 
+    position: static; 
+    color: inherit;
+}
+
+.history-table tr:last-child td { border-bottom: none; }

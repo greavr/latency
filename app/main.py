@@ -3,192 +3,175 @@ import os
 import time
 import httpx
 import json
+import re
+import logging
+from datetime import datetime
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
 import firebase_admin
 from firebase_admin import firestore
-from google.cloud.firestore_v1.base_query import FieldFilter
+
+# --- Logging Configuration ---
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - [%(name)s] - %(message)s"
+)
+logger = logging.getLogger("latency_app")
 
 # --- Configuration ---
 REGION = os.getenv("REGION", "local-dev")
 PROJECT_ID = os.getenv("PROJECT_ID", "unknown")
+REGION_REGEX = r'([a-z]{2,10}-[a-z]{4,10}\d)'
 
-# Initialize Firebase
+def get_region_from_url(url: str) -> str:
+    match = re.search(REGION_REGEX, url)
+    return match.group(1) if match else url.split('//')[-1].split('.')[0]
+
+# --- Firebase Initialization ---
 if not firebase_admin._apps:
     firebase_admin.initialize_app()
 
-db = firestore.client(database_id="latencys")
+db = firestore.client(database_id="latency")
+
 app = FastAPI()
 
-# --- Background Worker Logic ---
+# --- Templates & Static Files ---
+app.mount("/static", StaticFiles(directory="static"), name="static")
+templates = Jinja2Templates(directory="templates")
 
-async def latency_worker():
-    """Background loop to measure latency to other registered regions."""
-    client = httpx.AsyncClient(timeout=10.0)
-    print(f"Starting latency worker in region: {REGION}")
-    
-    while True:
-        try:
-            # Fetch target URLs and interval from Firestore
-            targets_doc = db.collection("index").document("targets").get()
-            if not targets_doc.exists:
-                await asyncio.sleep(10)
-                continue
-            
-            data = targets_doc.to_dict()
-            urls = data.get("urls", [])
-            interval = data.get("test_interval_seconds", 30)
+def get_latency_class(ms: float) -> str:
+    if ms < 50: return "lat-excellent"
+    if ms < 150: return "lat-good"
+    if ms < 300: return "lat-fair"
+    return "lat-poor"
 
-            for url in urls:
-                # Skip self-pinging to keep data clean
-                if f"/{REGION}" in url or REGION in url:
-                    continue
-                
-                start_time = time.perf_counter()
-                try:
-                    # Ping the remote /ping endpoint
-                    response = await client.get(f"{url}/ping")
-                    latency = (time.perf_counter() - start_time) * 1000 # Convert to ms
-                    
-                    if response.status_code == 200:
-                        # Log success to Firestore
-                        db.collection("latency_logs").add({
-                            "from_region": REGION,
-                            "to_url": url,
-                            "latency_ms": latency,
-                            "timestamp": firestore.SERVER_TIMESTAMP,
-                            "status": "success"
-                        })
-                except Exception as e:
-                    print(f"Error pinging {url}: {e}")
-
-            await asyncio.sleep(interval)
-        except Exception as e:
-            print(f"Worker Error: {e}")
-            await asyncio.sleep(10)
-
-@app.on_event("startup")
-async def startup_event():
-    """Start the background worker when the FastAPI app launches."""
-    asyncio.create_task(latency_worker())
-
-# --- Routes ---
+# --- Endpoints & Background Tasks ---
 
 @app.get("/ping")
 async def ping():
-    return {"status": "ok", "region": REGION, "timestamp": time.time()}
+    return {"status": "ok", "region": REGION}
+
+async def latency_worker():
+    logger.info("Latency worker started. Waiting 10 seconds before first run...")
+    await asyncio.sleep(10)
+    
+    while True:
+        try:
+            logger.debug("Fetching targets from Firebase...")
+            targets_ref = await asyncio.to_thread(db.collection("index").document("targets").get)
+            
+            if not targets_ref.exists:
+                logger.warning("Targets document does not exist yet. Skipping this cycle.")
+                await asyncio.sleep(30)
+                continue
+                
+            targets_data = targets_ref.to_dict()
+            urls = targets_data.get("urls", [])
+            
+            if not urls:
+                logger.info("No target URLs found in index/targets. Skipping.")
+            
+            for url in urls:
+                target_region = get_region_from_url(url)
+                logger.info(f"Pinging {url} ({target_region})...")
+                
+                start_time = time.time()
+                async with httpx.AsyncClient(timeout=10.0) as client:
+                    try:
+                        resp = await client.get(f"{url}/ping")
+                        resp.raise_for_status()
+                        latency_ms = (time.time() - start_time) * 1000
+                        logger.info(f"Ping successful to {target_region}: {latency_ms:.2f}ms")
+                        
+                        logger.debug(f"Attempting to write latency to Firebase for {target_region}...")
+                        
+                        await asyncio.to_thread(
+                            db.collection("latency_logs").add,
+                            {
+                                "from_region": REGION,
+                                "to_region": target_region,
+                                "latency_ms": latency_ms,
+                                "timestamp": firestore.SERVER_TIMESTAMP
+                            }
+                        )
+                        logger.info(f"Successfully wrote {target_region} latency to Firebase.")
+                        
+                    except httpx.RequestError as e:
+                        logger.error(f"HTTP Request failed for {url}: {str(e)}")
+                    except httpx.HTTPStatusError as e:
+                        logger.error(f"HTTP Status Error for {url}: {e.response.status_code}")
+
+        except Exception as e:
+            logger.error("FATAL error in latency_worker cycle!", exc_info=True)
+            
+        logger.info("Cycle complete. Sleeping for 60 seconds.")
+        await asyncio.sleep(60)
+
+@app.on_event("startup")
+async def startup_event():
+    asyncio.create_task(latency_worker())
 
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request):
-    # 1. Registration Logic
     raw_url = str(request.base_url).rstrip("/")
     current_call_url = raw_url.replace("http://", "https://")
-    targets_ref = db.collection("index").document("targets")
     
-    try:
-        targets_ref.update({
-            "urls": firestore.ArrayUnion([current_call_url]),
-            f"region_map.{REGION}": current_call_url
-        })
-    except Exception:
-        targets_ref.set({
-            "urls": [current_call_url],
-            "region_map": {REGION: current_call_url},
-            "test_interval_seconds": 30
-        }, merge=True)
+    # Self-registration
+    targets_ref = db.collection("index").document("targets")
+    targets_ref.set({"urls": firestore.ArrayUnion([current_call_url]), f"region_map.{REGION}": current_call_url}, merge=True)
 
-    # 2. Fetch Latency Data for Dashboard
-    logs_ref = db.collection("latency_logs")
-    query = logs_ref.order_by("timestamp", direction=firestore.Query.DESCENDING).limit(100)
-    docs = query.stream()
+    # Fetch logs
+    logs = db.collection("latency_logs").order_by("timestamp", direction=firestore.Query.DESCENDING).limit(500).stream()
 
-    # Organize data: { "Source → Dest": [list of latencies] }
-    stats = {}
-    for doc in docs:
+    matrix = {}
+    regions = {REGION}
+
+    for doc in logs:
         d = doc.to_dict()
-        # Clean up URL for display
-        dest_display = d.get('to_url').split('//')[-1].split('.')[0]
-        key = f"{d.get('from_region')} → {dest_display}"
+        src = d.get('from_region') or 'unknown'
+        dst = d.get('to_region') or 'unknown'
+        lat = d.get('latency_ms', 0)
         
-        if key not in stats:
-            stats[key] = []
-        stats[key].append(d.get("latency_ms", 0))
-
-    # Prepare rows for the HTML table
-    table_rows = ""
-    for route, values in stats.items():
-        latest = f"{values[0]:.2f} ms" if values else "N/A"
-        # Reverse values so trend goes left-to-right (chronological)
-        history = list(reversed(values[:10])) 
-        route_id = route.replace(" ", "").replace("→", "").replace("-", "")
+        ts = d.get('timestamp')
+        ts_str = ts.strftime("%H:%M:%S") if ts else "N/A"
         
-        table_rows += f"""
-        <tr>
-            <td>{route}</td>
-            <td style="font-weight: bold; color: #2c3e50;">{latest}</td>
-            <td><canvas id="chart-{route_id}" width="150" height="40"></canvas></td>
-            <script>
-                new Chart(document.getElementById('chart-{route_id}'), {{
-                    type: 'line',
-                    data: {{
-                        labels: {list(range(len(history)))},
-                        datasets: [{{
-                            data: {history},
-                            borderColor: '#3498db',
-                            borderWidth: 2,
-                            pointRadius: 1,
-                            fill: false,
-                            tension: 0.3
-                        }}]
-                    }},
-                    options: {{
-                        responsive: false,
-                        maintainAspectRatio: true,
-                        scales: {{ x: {{display: false}}, y: {{display: false}} }},
-                        plugins: {{ legend: {{display: false}}, tooltip: {{enabled: false}} }}
-                    }}
-                }});
-            </script>
-        </tr>
-        """
+        regions.add(src)
+        regions.add(dst)
 
-    return f"""
-    <html>
-        <head>
-            <title>Global Latency Monitor</title>
-            <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-            <style>
-                body {{ font-family: 'Segoe UI', system-ui, sans-serif; margin: 40px; background: #f0f2f5; color: #1a1a1b; }}
-                .card {{ background: white; padding: 30px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); max-width: 1000px; margin: auto; }}
-                table {{ width: 100%; border-collapse: collapse; margin-top: 25px; }}
-                th, td {{ padding: 16px; text-align: left; border-bottom: 1px solid #eef0f2; }}
-                th {{ background-color: #f8f9fa; color: #707070; font-weight: 600; text-transform: uppercase; font-size: 0.8rem; }}
-                .status-tag {{ font-size: 0.75rem; padding: 4px 10px; border-radius: 20px; background: #e7f6ed; color: #0d3c26; font-weight: bold; }}
-                h1 {{ margin-top: 0; }}
-            </style>
-        </head>
-        <body>
-            <div class="card">
-                <h1>Latency Monitor: <span style="color:#3498db;">{REGION}</span></h1>
-                <p>Project: <code>{PROJECT_ID}</code> <span class="status-tag">System Active</span></p>
-                
-                <table>
-                    <thead>
-                        <tr>
-                            <th>Route</th>
-                            <th>Latest</th>
-                            <th>Trend (Last 10)</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {table_rows if table_rows else '<tr><td colspan="3">Waiting for logs... Data appears after first background test.</td></tr>'}
-                    </tbody>
-                </table>
-                <p style="margin-top: 25px; font-size: 0.85rem; color: #888;">
-                    Local Node: {current_call_url} | Refreshing every 30s
-                </p>
-            </div>
-            <script>setTimeout(() => {{ location.reload(); }}, 30000);</script>
-        </body>
-    </html>
-    """
+        if src not in matrix: matrix[src] = {}
+        if dst not in matrix[src]: matrix[src][dst] = []
+        matrix[src][dst].append({"ms": round(lat, 2), "time": ts_str})
+
+    sorted_regions = sorted(list(regions))
+    
+    header_html = "<tr><th>From \\ To</th>" + "".join([f"<th>{r}</th>" for r in sorted_regions]) + "</tr>"
+    rows_html = ""
+    for src in sorted_regions:
+        row = f"<tr><td class='region-label'>{src}</td>"
+        for dst in sorted_regions:
+            if src == dst:
+                row += "<td class='cell-self'>-</td>"
+            else:
+                history = matrix.get(src, {}).get(dst, [])
+                if history:
+                    latest = history[0]['ms']
+                    row += f"""<td class='cell-active {get_latency_class(latest)}' 
+                                onclick='showHistory("{src}", "{dst}", {json.dumps(history[::-1])})'>
+                                {latest}ms
+                              </td>"""
+                else:
+                    row += "<td class='cell-empty'>N/A</td>"
+        rows_html += row + "</tr>"
+
+    return templates.TemplateResponse(
+        "index.html", 
+        {
+            "request": request, 
+            "header_html": header_html, 
+            "rows_html": rows_html,
+            "current_url": current_call_url,
+            "matrix_json": json.dumps(matrix)
+        }
+    )

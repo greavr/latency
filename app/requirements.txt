@@ -4,3 +4,4 @@ firebase-admin>=6.4.0
 google-cloud-firestore>=2.14.0
 httpx==0.26.0
 requests==2.31.0
+jinja2
