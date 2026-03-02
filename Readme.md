@@ -29,7 +29,22 @@ Each instance performs two roles simultaneously:
 
 ---
 
-## 1. Local Development Setup
+## 1. Create a Gemini API Key
+
+To enable the Network Insights Assistant, you must provide a valid Gemini API key. 
+
+1. Go to [Google AI Studio](https://aistudio.google.com/).
+2. Sign in with your Google account.
+3. In the left-hand navigation menu, click **Get API key**.
+
+
+
+4. Click the **Create API key** button. You can choose to provision this key in a new project or select your existing GCP project.
+5. Copy the generated key. Treat this key like a password and do not commit it to version control.
+
+---
+
+## 2. Local Development Setup
 
 To run the application locally for testing or debugging, follow these steps using `virtualenv`.
 
@@ -73,7 +88,7 @@ uvicorn main:app --host 0.0.0.0 --port 8080
 
 ---
 
-## 2. Deploy Infrastructure (Terraform)
+## 3. Deploy Infrastructure (Terraform)
 
 Before you can push your Docker image, you must deploy the underlying infrastructure. This creates the Artifact Registry repository, sets up the Pub/Sub trigger, and deploys "placeholder" Cloud Run services globally.
 
@@ -87,7 +102,7 @@ terraform apply -var="project_id=YOUR_PROJECT_ID"
 
 ---
 
-## 3. Trigger a Deployment (Build & Push)
+## 4. Trigger a Deployment (Build & Push)
 
 Once Terraform has successfully created the `latency-repo` Artifact Registry repository and the Cloud Build trigger, pushing a new Docker image will automatically trigger a global rollout to all your Cloud Run services.
 
@@ -109,7 +124,7 @@ docker build -t us-central1-docker.pkg.dev/$PROJECT_ID/latency-repo/latency-app:
 Push the image to Artifact Registry. Once the upload completes, Artifact Registry will publish a message to the `gcr` Pub/Sub topic, which Cloud Build will intercept and use to deploy the app to all regions.
 
 ```bash
-docker push us-central1-docker.pkg.dev/$YOUR_$PROJECT_ID/latency-repo/latency-app:latest
+docker push us-central1-docker.pkg.dev/$$PROJECT_ID/latency-repo/latency-app:latest
 ```
 
 > **Note:** You can view the progress of your deployment by visiting the **Cloud Build** page in the Google Cloud Console.

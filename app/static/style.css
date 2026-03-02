@@ -144,7 +144,7 @@ body {
     color: white;
 }
 
-/* --- Leaflet Map --- */
+/* --- Leaflet Map Customizations --- */
 .map-popup {
     min-width: 200px;
 }
@@ -166,6 +166,90 @@ body {
 
 .leaflet-popup-content {
     margin: 15px;
+}
+
+/* --- Gemini Chat UI Styles --- */
+.chat-container {
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+}
+
+.chat-box {
+    height: 250px;
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    padding: 15px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin-bottom: 15px;
+}
+
+.chat-message {
+    max-width: 80%;
+    padding: 10px 14px;
+    border-radius: 8px;
+    font-size: 0.95rem;
+    line-height: 1.4;
+    word-wrap: break-word;
+}
+
+.chat-message.bot {
+    background: #e8f0fe;
+    color: #1a73e8;
+    align-self: flex-start;
+    border-bottom-left-radius: 2px;
+}
+
+.chat-message.user {
+    background: #0f172a;
+    color: white;
+    align-self: flex-end;
+    border-bottom-right-radius: 2px;
+}
+
+.chat-message.bot.loading {
+    color: #64748b;
+    font-style: italic;
+    background: #f1f5f9;
+}
+
+.chat-input-area {
+    display: flex;
+    gap: 10px;
+}
+
+#chat-input {
+    flex-grow: 1;
+    padding: 12px 15px;
+    border: 1px solid #cbd5e1;
+    border-radius: 6px;
+    font-size: 1rem;
+    outline: none;
+    transition: border-color 0.2s;
+}
+
+#chat-input:focus {
+    border-color: #1a73e8;
+    box-shadow: 0 0 0 2px rgba(26, 115, 232, 0.2);
+}
+
+.chat-send-btn {
+    background: #1a73e8;
+    color: white;
+    border: none;
+    padding: 0 24px;
+    border-radius: 6px;
+    font-weight: 600;
+    font-size: 1rem;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+
+.chat-send-btn:hover {
+    background: #1557b0;
 }
 
 /* --- Scrollable Heatmap Table --- */

@@ -3,6 +3,12 @@ variable "project_id" {
   description = "The GCP Project ID where resources will be deployed"
 }
 
+variable "gemini_api_key" {
+  type        = string
+  description = "The Gemini API Key for the AI assistant"
+  sensitive   = true
+}
+
 provider "google" {
   project = var.project_id
 }
@@ -21,7 +27,8 @@ resource "google_project_service" "required_services" {
     "storage-component.googleapis.com",
     "cloudresourcemanager.googleapis.com",
     "cloudbuild.googleapis.com",
-    "pubsub.googleapis.com" # Added for Artifact Registry event triggering
+    "pubsub.googleapis.com",
+    "generativelanguage.googleapis.com" # Required for Gemini API Key usage
   ])
 
   project                    = var.project_id
@@ -190,6 +197,10 @@ resource "google_cloud_run_v2_service" "latency_service" {
       env {
         name  = "REGION"
         value = each.value
+      }
+      env {
+        name  = "GEMINI_API_KEY"
+        value = var.gemini_api_key
       }
     }
   }

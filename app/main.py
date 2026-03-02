@@ -10,8 +10,12 @@ from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from pydantic import BaseModel
 import firebase_admin
 from firebase_admin import firestore
+
+# Import our new Gemini service module
+from gemini_agent import generate_chat_response
 
 # --- Logging Configuration ---
 logging.basicConfig(
@@ -41,6 +45,9 @@ app = FastAPI()
 app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
 
+class ChatRequest(BaseModel):
+    message: str
+
 def get_latency_class(ms: float) -> str:
     if ms < 50: return "lat-excellent"
     if ms < 150: return "lat-good"
@@ -48,6 +55,26 @@ def get_latency_class(ms: float) -> str:
     return "lat-poor"
 
 # --- Endpoints & Background Tasks ---
+
+@app.post("/api/chat")
+async def chat_with_gemini(req: ChatRequest):
+    # Fetch latest matrix context for the AI
+    logs = db.collection("latency_logs").order_by("timestamp", direction=firestore.Query.DESCENDING).limit(300).stream()
+    latest_matrix = {}
+    
+    for doc in logs:
+        d = doc.to_dict()
+        src = d.get('from_region', 'unknown')
+        dst = d.get('to_region', 'unknown')
+        lat = d.get('latency_ms', 0)
+        
+        if src not in latest_matrix: latest_matrix[src] = {}
+        # Only keep the most recent ping for the prompt context to save tokens
+        if dst not in latest_matrix[src]: latest_matrix[src][dst] = round(lat, 2)
+
+    # Call the isolated Gemini logic
+    reply = await generate_chat_response(req.message, latest_matrix)
+    return {"reply": reply}
 
 @app.get("/ping")
 async def ping():
@@ -118,11 +145,9 @@ async def home(request: Request):
     raw_url = str(request.base_url).rstrip("/")
     current_call_url = raw_url.replace("http://", "https://")
     
-    # Self-registration
     targets_ref = db.collection("index").document("targets")
     targets_ref.set({"urls": firestore.ArrayUnion([current_call_url]), f"region_map.{REGION}": current_call_url}, merge=True)
 
-    # Fetch logs
     logs = db.collection("latency_logs").order_by("timestamp", direction=firestore.Query.DESCENDING).limit(500).stream()
 
     matrix = {}

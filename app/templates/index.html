@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Global Latency Heatmap</title>
+    <title>Global Latency Heatmap & AI Insights</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
@@ -50,6 +50,27 @@
             <div id="gcp-map" style="height: 450px; width: 100%; border-radius: 8px; border: 1px solid #e2e8f0; z-index: 1;"></div>
         </div>
 
+        <div class="container chat-container">
+            <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 15px;">
+                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#1a73e8" stroke-width="2">
+                    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+                </svg>
+                <h2 style="margin:0; color: #1a73e8;">Network Insights Assistant</h2>
+            </div>
+            <p style="color: #64748b; margin-top: 0;">Ask Gemini about the current GCP latency matrix (e.g., "What's the fastest route from Tokyo to London?").</p>
+            
+            <div id="chat-box" class="chat-box">
+                <div class="chat-message bot">
+                    Hello! I'm your Gemini Network Assistant. I have real-time access to the latency grid below. How can I help you?
+                </div>
+            </div>
+            
+            <div class="chat-input-area">
+                <input type="text" id="chat-input" placeholder="Ask about latency routes, spikes, or regions..." onkeypress="handleChatKeyPress(event)">
+                <button onclick="sendChatMessage()" class="chat-send-btn">Send</button>
+            </div>
+        </div>
+
         <div class="container heatmap-container">
             <div class="heatmap-header">
                 <h1 style="margin:0;">Global Latency Grid</h1>
@@ -88,56 +109,49 @@
         // --- Map Initialization & Logic ---
         const matrixData = {{ matrix_json | safe }};
         
-        // Approximate coordinates for GCP regions
-       const regionCoords = {
-            // Americas
-            "northamerica-northeast1": [45.50, -73.56], // Montréal
-            "northamerica-northeast2": [43.65, -79.38], // Toronto
-            "northamerica-south1": [20.58, -100.39],    // Querétaro
-            "southamerica-east1": [-23.55, -46.63],     // São Paulo
-            "southamerica-west1": [-33.44, -70.66],     // Santiago
-            "us-central1": [41.26, -95.86],             // Iowa
-            "us-east1": [33.19, -80.01],                // South Carolina
-            "us-east4": [39.04, -77.48],                // Northern Virginia
-            "us-east5": [39.96, -82.99],                // Columbus
-            "us-south1": [32.77, -96.79],               // Dallas
-            "us-west1": [45.59, -121.18],               // Oregon
-            "us-west2": [34.05, -118.24],               // Los Angeles
-            "us-west3": [40.76, -111.89],               // Salt Lake City
-            "us-west4": [36.16, -115.13],               // Las Vegas
-            
-            // Europe
-            "europe-central2": [52.22, 21.01],          // Warsaw
-            "europe-north1": [60.56, 27.19],            // Finland
-            "europe-north2": [59.32, 18.06],            // Stockholm
-            "europe-southwest1": [40.41, -3.70],        // Madrid
-            "europe-west1": [50.45, 3.82],              // Belgium
-            "europe-west2": [51.50, -0.12],             // London
-            "europe-west3": [50.11, 8.68],              // Frankfurt
-            "europe-west4": [53.42, 6.80],              // Netherlands
-            "europe-west6": [47.37, 8.54],              // Zurich
-            "europe-west8": [45.46, 9.19],              // Milan
-            "europe-west9": [48.85, 2.35],              // Paris
-            "europe-west10": [52.52, 13.40],            // Berlin
-            "europe-west12": [45.07, 7.68],             // Turin
-            
-            // Asia-Pacific
-            "asia-east1": [24.05, 120.43],              // Taiwan
-            "asia-east2": [22.31, 114.16],              // Hong Kong
-            "asia-northeast1": [35.68, 139.69],         // Tokyo
-            "asia-northeast2": [34.69, 135.50],         // Osaka
-            "asia-northeast3": [37.56, 126.97],         // Seoul
-            "asia-south1": [19.07, 72.87],              // Mumbai
-            "asia-south2": [28.61, 77.20],              // Delhi
-            "asia-southeast1": [1.35, 103.81],          // Singapore
-            "asia-southeast2": [-6.20, 106.81],         // Jakarta
-            "asia-southeast3": [13.75, 100.50],         // Bangkok
-            "australia-southeast1": [-33.86, 151.20],   // Sydney
-            "australia-southeast2": [-37.81, 144.96],   // Melbourne
-            
-            // Middle East & Africa
-            "africa-south1": [-26.20, 28.04],           // Johannesburg
-            "me-central1": [25.28, 51.53]               // Doha
+        // Comprehensive coordinates for GCP regions
+        const regionCoords = {
+            "northamerica-northeast1": [45.50, -73.56],
+            "northamerica-northeast2": [43.65, -79.38],
+            "northamerica-south1": [20.58, -100.39],
+            "southamerica-east1": [-23.55, -46.63],
+            "southamerica-west1": [-33.44, -70.66],
+            "us-central1": [41.26, -95.86],
+            "us-east1": [33.19, -80.01],
+            "us-east4": [39.04, -77.48],
+            "us-east5": [39.96, -82.99],
+            "us-south1": [32.77, -96.79],
+            "us-west1": [45.59, -121.18],
+            "us-west2": [34.05, -118.24],
+            "us-west3": [40.76, -111.89],
+            "us-west4": [36.16, -115.13],
+            "europe-central2": [52.22, 21.01],
+            "europe-north1": [60.56, 27.19],
+            "europe-north2": [59.32, 18.06],
+            "europe-southwest1": [40.41, -3.70],
+            "europe-west1": [50.45, 3.82],
+            "europe-west2": [51.50, -0.12],
+            "europe-west3": [50.11, 8.68],
+            "europe-west4": [53.42, 6.80],
+            "europe-west6": [47.37, 8.54],
+            "europe-west8": [45.46, 9.19],
+            "europe-west9": [48.85, 2.35],
+            "europe-west10": [52.52, 13.40],
+            "europe-west12": [45.07, 7.68],
+            "asia-east1": [24.05, 120.43],
+            "asia-east2": [22.31, 114.16],
+            "asia-northeast1": [35.68, 139.69],
+            "asia-northeast2": [34.69, 135.50],
+            "asia-northeast3": [37.56, 126.97],
+            "asia-south1": [19.07, 72.87],
+            "asia-south2": [28.61, 77.20],
+            "asia-southeast1": [1.35, 103.81],
+            "asia-southeast2": [-6.20, 106.81],
+            "asia-southeast3": [13.75, 100.50],
+            "australia-southeast1": [-33.86, 151.20],
+            "australia-southeast2": [-37.81, 144.96],
+            "africa-south1": [-26.20, 28.04],
+            "me-central1": [25.28, 51.53]
         };
 
         const map = L.map('gcp-map').setView([30, -20], 2);
@@ -212,6 +226,51 @@
             });
         }
 
+        // --- Gemini Chat Logic ---
+        async function sendChatMessage() {
+            const inputField = document.getElementById('chat-input');
+            const message = inputField.value.trim();
+            if (!message) return;
+
+            const chatBox = document.getElementById('chat-box');
+            
+            chatBox.innerHTML += `<div class="chat-message user">${message}</div>`;
+            inputField.value = '';
+            
+            const loadingId = 'loading-' + Date.now();
+            chatBox.innerHTML += `<div id="${loadingId}" class="chat-message bot loading">Analyzing network data...</div>`;
+            chatBox.scrollTop = chatBox.scrollHeight;
+
+            try {
+                const response = await fetch('/api/chat', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ message: message })
+                });
+                
+                const data = await response.json();
+                document.getElementById(loadingId).remove();
+                
+                let formattedReply = data.reply
+                    .replace(/\n/g, '<br>')
+                    .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+                    .replace(/\*(.*?)\*/g, '<em>$1</em>');
+
+                chatBox.innerHTML += `<div class="chat-message bot">${formattedReply}</div>`;
+            } catch (error) {
+                document.getElementById(loadingId).remove();
+                chatBox.innerHTML += `<div class="chat-message bot" style="color: #dc2626;">Connection error. Please try again.</div>`;
+            }
+            
+            chatBox.scrollTop = chatBox.scrollHeight;
+        }
+
+        function handleChatKeyPress(event) {
+            if (event.key === 'Enter') {
+                sendChatMessage();
+            }
+        }
+
         // --- Heatmap & Chart Logic ---
         let myChart = null;
 
@@ -257,7 +316,7 @@
 
         function closeModal() { document.getElementById('modal').style.display = "none"; }
         window.onclick = e => { if(e.target == document.getElementById('modal')) closeModal(); }
-        setTimeout(() => location.reload(), 60000);
+        setTimeout(() => location.reload(), 60000); // Reload data every 60s
     </script>
 </body>
 </html>
