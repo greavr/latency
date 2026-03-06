@@ -78,7 +78,7 @@ def get_latency_class(ms: float) -> str:
 @app.post("/api/chat")
 async def chat_with_gemini(req: ChatRequest):
     # Fetch latest matrix context for the AI
-    logs = db.collection("latency_logs").order_by("timestamp", direction=firestore.Query.DESCENDING).limit(300).stream()
+    logs = db.collection("latency_logs").order_by("timestamp", direction=firestore.Query.DESCENDING).limit(5000).stream()
     latest_matrix = {}
     
     for doc in logs:
@@ -174,33 +174,40 @@ async def home(request: Request):
     raw_url = str(request.base_url).rstrip("/")
     current_call_url = raw_url.replace("http://", "https://")
     
+    # Register this region in the index
     targets_ref = db.collection("index").document("targets")
     targets_ref.set({"urls": firestore.ArrayUnion([current_call_url]), f"region_map.{REGION}": current_call_url}, merge=True)
 
-    logs = db.collection("latency_logs").order_by("timestamp", direction=firestore.Query.DESCENDING).limit(500).stream()
+    # 1. Increase limit to cover full mesh (43*43 = 1849)
+    # We order by timestamp ASCENDING so that when we loop, 
+    # newer entries naturally overwrite older ones in our dictionary.
+    logs = db.collection("latency_logs") \
+             .order_by("timestamp", direction=firestore.Query.ASCENDING) \
+             .limit(2500) \
+             .stream()
 
     matrix = {}
-    regions = {REGION}
+    # Use the full list from your config to ensure the table is always full size
+    sorted_regions = sorted(GCP_REGIONS) 
 
     for doc in logs:
         d = doc.to_dict()
         src = d.get('from_region') or 'unknown'
         dst = d.get('to_region') or 'unknown'
         lat = d.get('latency_ms', 0)
-        
         ts = d.get('timestamp')
         ts_str = ts.strftime("%H:%M:%S") if ts else "N/A"
         
-        regions.add(src)
-        regions.add(dst)
-
         if src not in matrix: matrix[src] = {}
-        if dst not in matrix[src]: matrix[src][dst] = []
-        matrix[src][dst].append({"ms": round(lat, 2), "time": ts_str})
+        
+        # FIX: We store the most recent data point for this pair.
+        # Since the query is ASCENDING, the last one seen is the newest.
+        matrix[src][dst] = [{"ms": round(lat, 2), "time": ts_str}]
 
-    sorted_regions = sorted(list(regions))
-    
+    # 2. Build Header
     header_html = "<tr><th>From \\ To</th>" + "".join([f"<th>{r}</th>" for r in sorted_regions]) + "</tr>"
+    
+    # 3. Build Rows
     rows_html = ""
     for src in sorted_regions:
         row = f"<tr><td class='region-label'>{src}</td>"
@@ -208,11 +215,12 @@ async def home(request: Request):
             if src == dst:
                 row += "<td class='cell-self'>-</td>"
             else:
+                # Look up the data in our deduplicated matrix
                 history = matrix.get(src, {}).get(dst, [])
                 if history:
                     latest = history[0]['ms']
                     row += f"""<td class='cell-active {get_latency_class(latest)}' 
-                                onclick='showHistory("{src}", "{dst}", {json.dumps(history[::-1])})'>
+                                onclick='showHistory("{src}", "{dst}", {json.dumps(history)})'>
                                 {latest}ms
                               </td>"""
                 else:
