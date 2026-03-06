@@ -24,7 +24,7 @@ GCP_REGIONS = [
 ]
 
 def estimate_latency(src, dst):
-    """Generates realistic latency based on region prefixes."""
+    """Generates realistic latency capped at 600ms."""
     prefixes = {
         'us': 1, 'northamerica': 1, 'southamerica': 3,
         'europe': 2, 'me': 3, 'africa': 4, 'asia': 4, 'australia': 5
@@ -38,7 +38,10 @@ def estimate_latency(src, dst):
     # Calculate rough distance jump
     diff = abs(prefixes.get(s_p, 3) - prefixes.get(d_p, 3))
     base = 80.0 + (diff * 60.0)
-    return base + random.uniform(-10.0, 20.0)
+    latency = base + random.uniform(-10.0, 20.0)
+    
+    # HARD CONSTRAINT: Ensure no value exceeds 600ms
+    return min(latency, 600.0)
 
 def commit_batch(docs):
     """Helper to handle Firestore's 500-limit per batch."""
@@ -67,19 +70,16 @@ def seed_full_mesh():
                 "timestamp": datetime.now(timezone.utc)
             }
             
-            # Add to our local list for batching
             all_docs.append((collection_ref.document(), doc_data))
             
-            # Commit in chunks of 450 to stay under the 500 limit
             if len(all_docs) >= 450:
                 commit_batch(all_docs)
                 all_docs = []
 
-    # Commit remaining
     if all_docs:
         commit_batch(all_docs)
 
-    print("\n✅ Full Mesh Complete. 1,806 pairs generated.")
+    print(f"\n✅ Full Mesh Complete. {len(GCP_REGIONS) * (len(GCP_REGIONS) - 1)} pairs generated.")
 
 if __name__ == "__main__":
     seed_full_mesh()
