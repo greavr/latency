@@ -26,6 +26,7 @@ logger = logging.getLogger("latency_app")
 # --- Configuration ---
 REGION = os.getenv("REGION", "local-dev")
 PROJECT_ID = os.getenv("PROJECT_ID", "unknown")
+DEMO_MODE = os.getenv("DEMO_MODE", "false").lower() == "true"
 
 GCP_REGIONS = [
     "africa-south1",
@@ -112,6 +113,10 @@ async def ping_target(url: str, current_region: str):
             resp.raise_for_status()
             latency_ms = (time.time() - start_time) * 1000
             logger.info(f"Ping successful to {target_region}: {latency_ms:.2f}ms")
+
+            if DEMO_MODE:
+                logger.info("Demo mode is enabled. Skipping Firestore write.")
+                return
             
             logger.debug(f"Attempting to write latency to Firebase for {target_region}...")
             

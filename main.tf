@@ -9,6 +9,12 @@ variable "gemini_api_key" {
   sensitive   = true
 }
 
+variable "demo_mode" {
+  type        = bool
+  description = "If set to true, the application will not write latency metrics to Firestore."
+  default     = false
+}
+
 provider "google" {
   project = var.project_id
 }
@@ -201,6 +207,10 @@ resource "google_cloud_run_v2_service" "latency_service" {
       env {
         name  = "GEMINI_API_KEY"
         value = var.gemini_api_key
+      }
+      env {
+        name  = "DEMO_MODE"
+        value = var.demo_mode
       }
     }
   }
